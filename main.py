@@ -1,6 +1,7 @@
-from flask import Flask, render_template, request
+from flask import Flask, jsonify, render_template, request
 import psycopg2
-from datetime import datetime, timedelta
+from datetime import datetime
+import pytz  # Make sure pytz is installed
 
 app = Flask(__name__)
 
@@ -16,35 +17,60 @@ def get_db_connection():
 
 @app.route('/')
 def dashboard():
-    # Get optional time range from query parameters
     start_time = request.args.get('start_time')
     end_time = request.args.get('end_time')
 
+    print("Start Time:", start_time)
+    print("End Time:", end_time)
+
+    utc = pytz.UTC
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # If start_time and end_time are provided, filter data within this time range
-    if start_time and end_time:
-        cur.execute("""
-            SELECT device_id, temperature, humidity, timestamp 
-            FROM iot_data 
-            WHERE timestamp BETWEEN %s AND %s
-            ORDER BY timestamp DESC
-            """, (start_time, end_time))
-    else:
-        # Default query: retrieve the latest 30 records if no time range is specified
-        cur.execute("SELECT device_id, temperature, humidity, timestamp FROM iot_data ORDER BY timestamp DESC LIMIT 30")
+    device_ids, temperatures, humidities, timestamps = [], [], [], []
 
-    data = cur.fetchall()
+    try:
+        if start_time and end_time:
+            # Convert to datetime objects
+            start_time = datetime.strptime(start_time, '%Y-%m-%dT%H:%M')
+            end_time = datetime.strptime(end_time, '%Y-%m-%dT%H:%M')
+            # Convert to UTC
+            start_time = utc.localize(start_time)
+            end_time = utc.localize(end_time)
 
-    # Get the total number of data points
-    cur.execute("SELECT COUNT(*) FROM iot_data")
-    data_count = cur.fetchone()[0]
+            print("Querying with:", start_time, end_time)
 
-    cur.close()
-    conn.close()
+            query = """
+                SELECT device_id, temperature, humidity, timestamp 
+                FROM iot_data 
+                WHERE timestamp BETWEEN %s AND %s
+                ORDER BY timestamp DESC
+            """
+            cur.execute(query, (start_time, end_time))
+            data = cur.fetchall()
+            print("Data fetched with parameters:", (start_time, end_time), "Data:", data)
+        else:
+            cur.execute("SELECT device_id, temperature, humidity, timestamp FROM iot_data ORDER BY timestamp DESC LIMIT 30")
+            data = cur.fetchall()
+            print("Fallback data fetched:", data)
 
-    return render_template('dashboard.html', data=data, data_count=data_count)
+        if not data:
+            return jsonify({"message": "No data found"}), 404
+
+        device_ids = [row[0] for row in data]
+        temperatures = [row[1] for row in data]
+        humidities = [row[2] for row in data]
+        timestamps = [row[3].strftime('%Y-%m-%d %H:%M:%S') for row in data]
+
+    except Exception as e:
+        print("Error:", e)
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+    return render_template('dashboard.html', data=data, data_count=len(data), device_ids=device_ids, temperatures=temperatures, humidities=humidities, timestamps=timestamps)
 
 if __name__ == '__main__':
     app.run(debug=True)
