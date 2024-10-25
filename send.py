@@ -24,3 +24,7 @@ channel.basic_publish(
 print(" [x] Sent 'IoT data'")
 
 connection.close()
+
+
+
+

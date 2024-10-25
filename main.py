@@ -2,6 +2,7 @@ from flask import Flask, jsonify, render_template, request
 import psycopg2
 from datetime import datetime
 import pytz  # Make sure pytz is installed
+import random  # Import the random module
 
 app = Flask(__name__)
 
@@ -15,8 +16,30 @@ def get_db_connection():
         port="5432"
     )
 
+# Function to insert random IoT data into the database
+def insert_random_data():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    device_id = random.randint(1, 5)  # Assuming you have 5 devices
+    temperature = random.uniform(15.0, 30.0)  # Random temperature between 15°C and 30°C
+    humidity = random.uniform(30.0, 70.0)  # Random humidity between 30% and 70%
+    timestamp = datetime.now(pytz.UTC)
+
+    query = """
+        INSERT INTO iot_data (device_id, temperature, humidity, timestamp)
+        VALUES (%s, %s, %s, %s)
+    """
+    cur.execute(query, (device_id, temperature, humidity, timestamp))
+    conn.commit()  # Save changes
+    cur.close()
+    conn.close()
+
 @app.route('/')
 def dashboard():
+    # Insert random data into the database on each access
+    insert_random_data()
+
     start_time = request.args.get('start_time')
     end_time = request.args.get('end_time')
 
@@ -60,6 +83,7 @@ def dashboard():
         device_ids = [row[0] for row in data]
         temperatures = [row[1] for row in data]
         humidities = [row[2] for row in data]
+        # Format timestamps to desired format
         timestamps = [row[3].strftime('%Y-%m-%d %H:%M:%S') for row in data]
 
     except Exception as e:
